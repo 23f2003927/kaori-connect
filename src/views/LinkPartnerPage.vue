@@ -62,10 +62,45 @@ export default {
     onMounted(async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (user) {
-        const { data } = await supabase.from('profiles').select('partner_code').eq('id', user.id).single()
-        if (data) partnerCode.value = data.partner_code
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('partner_code')
+          .eq('id', user.id)
+          .maybeSingle()
+
+        if (error || !data || !data.partner_code) {
+          // Auto-generate profile and partner code if missing
+          const newCode = generatePartnerCode()
+          const name = user.user_metadata?.display_name || user.email.split('@')[0]
+          
+          const { error: upsertError } = await supabase
+            .from('profiles')
+            .upsert({
+              id: user.id,
+              display_name: name,
+              email: user.email,
+              partner_code: newCode
+            })
+          
+          if (!upsertError) {
+            partnerCode.value = newCode
+          } else {
+            error.value = 'Failed to generate code. Please make sure the profiles table exists in your Supabase database.'
+          }
+        } else {
+          partnerCode.value = data.partner_code
+        }
       }
     })
+
+    function generatePartnerCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+      let code = 'K-'
+      for (let i = 0; i < 6; i++) {
+        code += chars[Math.floor(Math.random() * chars.length)]
+      }
+      return code
+    }
 
     async function linkPartner() {
       error.value = ''
